@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaflet Map Example</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/MarkerCluster.Default.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-routing-machine/dist/leaflet-routing-machine.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet-fullscreen/1.5.0/Leaflet.fullscreen.min.css" />
+
+    <style>
+        /* Your custom styles */
+        body {
+            margin: 0;
+            padding: 0;
+        }
+        #route-info {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background-color: white; /* Changed background color to white */
+            padding: 10px;
+            text-align: center;
+            z-index: 1000;
+        }
+        #map {
+            height: calc(100vh - 50px); /* Adjust based on the height of route-info */
+            margin-top: 50px; /* Adjust based on the height of route-info */
+            position: relative;
+        }
+        #stop-btn {
+            position: absolute;
+            bottom: 10px; /* Adjust based on your preference */
+            right: 10px; /* Adjust based on your preference */
+            background-color: white;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 1001; /* Place the button above the map */
+        }
+        /* Hide routing container, bar, and control */
+        .leaflet-routing-container,
+        .leaflet-bar,
+        .leaflet-control {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="route-info">Distance: <span id="distance"></span> | Time: <span id="time"></span></div>
+    <div id="map"></div>
+    <img id="stop-btn" src="bus.png" alt="Stop Follow" width="30" height="30">
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.4.1/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-routing-machine/dist/leaflet-routing-machine.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-fullscreen/1.5.0/Leaflet.fullscreen.min.js"></script>
+
+    <script>
+        var map = L.map('map').setView([117.244317, 80.137092], 25);
+        var followMarker = false; // Initially set to false
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        var startPoint = [17.244317, 80.137092];
+        var endPoint = [17.595728, 78.440502];
+        var currentt = [0, 0];
+
+        var control = L.Routing.control({
+            waypoints: [
+                L.latLng(startPoint),
+                L.latLng(endPoint)
+            ],
+            lineOptions: {
+                styles: [{color: 'black', opacity: 0.8, weight: 3.5}]
+            },
+
+            createMarker: function () { return null; }, // This prevents markers from being created
+            
+            router: L.Routing.osrmv1({
+                serviceUrl: 'https://router.project-osrm.org/route/v1'
+            })
+        }).addTo(map);
+
+        control.on('routesfound', function(e) {
+            var routes = e.routes;
+            if (routes && routes.length > 0) {
+                var route = routes[0];
+                var distance = route.summary.totalDistance / 1000; // in kilometers
+                var time = route.summary.totalTime / 3600 * 60; // in minutes
+                document.getElementById('distance').textContent = distance.toFixed(2) + ' km';
+                document.getElementById('time').textContent = time.toFixed(0) + ' min';
+
+                var busIcon = L.icon({
+                    iconUrl: 'bus.png', // Adjust this path to your bus icon
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                });
+
+                var startIcon = L.icon({
+                    iconUrl: 'flag.png', // Adjust this path to your start marker icon
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                });
+
+                var stopIcon = L.icon({
+                    iconUrl: 'college.png', // Adjust this path to your stop marker icon
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 16]
+                });
+
+                var busMarker = L.marker(startPoint, {icon: busIcon}).addTo(map);
+                var startMarker = L.marker(startPoint, {icon: startIcon}).addTo(map);
+                var endMarker = L.marker(endPoint, {icon: stopIcon}).addTo(map);
+
+                animateBusMovement(busMarker, route.coordinates);
+
+                // Add click event listener to the marker to toggle followMarker
+                busMarker.on('click', function() {
+                    followMarker = !followMarker;
+                    if (followMarker) {
+                        map.setView(busMarker.getLatLng(), 20); // Set view to marker's position
+                    }
+                });
+
+                // Add click event listeners to start and stop markers to set map view
+                startMarker.on('click', function() {
+                    map.setView(startPoint, 20); // Set view to start marker's position
+                });
+
+                endMarker.on('click', function() {
+                    map.setView(endPoint, 20); // Set view to end marker's position
+                });
+            }
+        });
+
+        function animateBusMovement(marker, routeCoordinates) {
+            var index = 0;
+            var totalSteps = routeCoordinates.length;
+            var stepDuration = 20; // milliseconds
+
+            function moveBus() {
+                if (index < totalSteps - 1) {
+                    var currentLatLng = routeCoordinates[index];
+                    var nextLatLng = routeCoordinates[index + 1];
+                    currentt = currentLatLng;
+
+                    marker.setLatLng(currentLatLng);
+                    if (followMarker) {
+                        map.panTo(currentLatLng); // Move the map to follow the marker
+                    }
+
+                    // Calculate distance and expected time from the current location
+                    var remainingDistance = marker.getLatLng().distanceTo(L.latLng(endPoint[0], endPoint[1])) / 1000; // Convert to kilometers
+                    var speed = 30; // Assumed average speed in kilometers per hour
+                    var expectedTime = remainingDistance / speed; // Time in hours
+
+                    document.getElementById('distance').textContent = remainingDistance.toFixed(2) + ' km';
+                    document.getElementById('time').textContent = (expectedTime * 60).toFixed(0) + ' min';
+
+                    var distance = currentLatLng.distanceTo(nextLatLng); // Distance in meters
+                    var duration = (distance / 1000) / (stepDuration / 1000); // Convert meters to kilometers and divide by speed
+
+                    index++;
+                    setTimeout(moveBus, duration * 1000);
+                    if (index == 1) map.flyTo(currentLatLng, 15); // Fly to the marker's position
+                }
+            }
+
+            moveBus();
+        }
+
+        document.getElementById('stop-btn').addEventListener('click', function() {
+            // Check current zoom level
+            if (map.getZoom() !== 20) {
+                map.setView(currentt, 20); // Zoom to level 20
+            }
+            
+            // Toggle followMarker
+            followMarker = !followMarker;
+            
+            // Update image source based on followMarker state
+            if (followMarker) {
+                document.getElementById('stop-btn').src = 'bus.png';
+            } else {
+                document.getElementById('stop-btn').src = 'bus.png';
+            }
+        });
+
+        map.on('click', function(e) {
+            followMarker = false;
+            document.getElementById('stop-btn').src = 'bus.png';
+        });
+    </script>
+</body>
+</html>
